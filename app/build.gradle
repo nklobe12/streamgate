@@ -1,0 +1,28 @@
+plugins { id "com.android.application" }
+android {
+    namespace "com.klobe.streamgate"
+    compileSdk 34
+    defaultConfig {
+        applicationId "com.klobe.streamgate"
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+    }
+    signingConfigs {
+        // A fixed key lets new builds install over old ones without uninstalling.
+        shared {
+            storeFile rootProject.file("keystore/streamgate.jks")
+            storePassword "streamgate"
+            keyAlias "streamgate"
+            keyPassword "streamgate"
+        }
+    }
+    buildTypes {
+        release { minifyEnabled false; signingConfig signingConfigs.shared }
+        debug { signingConfig signingConfigs.shared }
+    }
+    lint { checkReleaseBuilds false }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}
+dependencies { implementation "androidx.webkit:webkit:1.11.0" }
