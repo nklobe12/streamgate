@@ -101,12 +101,6 @@ html.sg-game, html.sg-game body {
   overflow: hidden !important;
 }
 html.sg-game body { visibility: hidden !important; }
-html.sg-game .sg-chain {
-  transform: none !important;
-  filter: none !important;
-  perspective: none !important;
-  contain: none !important;
-}
 .sg-pin {
   position: fixed !important;
   inset: 0 !important;
@@ -135,6 +129,20 @@ html.sg-game #sg-root { pointer-events: none; visibility: visible; }
 .sg-loading.sg-hidden { display: none; }
 .sg-load-title { font-size: 2.4em; font-weight: 700; }
 .sg-load-text { margin-top: 0.6em; color: #a4adbb; font-size: 1.3em; }
+
+.sg-hint {
+  position: absolute;
+  top: 2em;
+  left: 2.4em;
+  max-width: 60%;
+  padding: 0.5em 1em;
+  border-radius: 0.5em;
+  background: rgba(0, 0, 0, 0.72);
+  color: #f2f4f7;
+  font-size: 1.2em;
+  opacity: 0;
+}
+.sg-hint.sg-show { opacity: 1; }
 
 .sg-panel {
   position: absolute;

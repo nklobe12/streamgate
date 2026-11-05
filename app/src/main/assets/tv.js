@@ -53,6 +53,14 @@
   }).observe(document, { childList: true });
   var isGame = GAME_PATH.test(location.pathname);
 
+  // If anything goes wrong, show the real page rather than a blank screen.
+  setTimeout(function () {
+    if (mode === 'pending') {
+      document.documentElement.classList.remove('sg-boot');
+      startGeneric();
+    }
+  }, 8000);
+
   function ready(fn) {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn);
     else fn();
@@ -212,15 +220,19 @@
     return out;
   }
 
-  function findPlayer() {
+  function findPlayer(skip) {
     var best = null, area = 0;
     document.querySelectorAll('video,iframe').forEach(function (n) {
-      if (n.closest('#sg-root')) return;
+      if (n === skip || n.closest('#sg-root')) return;
       var r = n.getBoundingClientRect(), a = r.width * r.height;
       if (n.tagName === 'VIDEO') a += 1e7;
-      if (r.width >= 200 && r.height >= 120 && a > area) { best = n; area = a; }
+      if (r.width >= 300 && r.height >= 160 && a > area) { best = n; area = a; }
     });
     return best;
+  }
+
+  function hostOf(n) {
+    try { return new URL(n.src, location.href).hostname; } catch (e) { return ''; }
   }
 
   function showGame() {
@@ -247,19 +259,56 @@
     panel.appendChild(list);
     root.appendChild(panel);
 
-    var servers = [], selected = 0, open = false, player = null, options = [], attempts = 0, timer = null;
+    var hint = el('div', 'sg-hint');
+    root.appendChild(hint);
 
+    var servers = [], selected = 0, open = false, player = null, options = [], attempts = 0, timer = null;
+    var playing = false, watch = null, watchTicks = 0;
+
+    function say(text) {
+      hint.textContent = text;
+      hint.classList.toggle('sg-show', !!text);
+    }
+    // Moving the player out of the site's layout stops that layout hiding it.
     function pin(p) {
-      if (player && player !== p) player.classList.remove('sg-pin');
+      if (player && player !== p) { player.classList.remove('sg-pin'); player.remove(); }
       player = p;
       p.classList.add('sg-pin');
-      for (var n = p.parentElement; n && n !== document.body; n = n.parentElement) n.classList.add('sg-chain');
+      p.setAttribute('allow', 'autoplay; fullscreen; encrypted-media; picture-in-picture');
+      if (p.parentNode !== document.body) document.body.appendChild(p);
       status.classList.add('sg-hidden');
+      watchPlayback();
     }
+    // Many players wait for a tap. Two taps at most, so a stream that is already
+    // playing but can't be detected ends up playing again.
+    function watchPlayback() {
+      clearInterval(watch);
+      playing = false;
+      watchTicks = 0;
+      say('Starting stream');
+      watch = setInterval(function () {
+        if (playing) { clearInterval(watch); return; }
+        watchTicks++;
+        if ((watchTicks === 3 || watchTicks === 8) && window.SGNative) SGNative.tap();
+        if (watchTicks === 18) {
+          clearInterval(watch);
+          var from = player && hostOf(player);
+          say('No video yet' + (from ? ' from ' + from : '') + '. Pick another server, or wait if it has started.');
+          if (!open) { selected = Math.min(selected + 1, Math.max(servers.length - 1, 0)); togglePanel(true); }
+        }
+      }, 1000);
+    }
+    window.addEventListener('message', function (e) {
+      if (e.data && e.data.sgPlaying && !playing) {
+        playing = true;
+        clearInterval(watch);
+        say('');
+      }
+    });
     function renderOptions() {
       list.textContent = '';
       options = servers.map(function (s, i) { return { label: s.label, run: function () { pick(i); } }; });
-      options.push({ label: 'Start player', run: function () { if (window.SGNative) SGNative.tap(); } });
+      options.push({ label: 'Tap player', run: function () { if (window.SGNative) SGNative.tap(); } });
       options.push({ label: 'Full page', run: fullPage });
       options.forEach(function (o, i) {
         var b = el('div', 'sg-option', o.label);
@@ -277,15 +326,20 @@
       if (!s) return;
       selected = i;
       togglePanel(false);
-      statusText.textContent = 'Loading ' + s.label;
-      status.classList.remove('sg-hidden');
+      say('Loading ' + s.label);
       s.node.click();
-      attempts = 0;
-      setTimeout(function () { var p = findPlayer(); if (p) pin(p); }, 1200);
-      setTimeout(function () { status.classList.add('sg-hidden'); }, 6000);
+      setTimeout(function () {
+        var p = findPlayer(player);
+        if (p) pin(p);
+        else if (player) {
+          // Some sites change the current player's address instead of adding a new one.
+          watchPlayback();
+        }
+      }, 1200);
     }
     function fullPage() {
       clearInterval(timer);
+      clearInterval(watch);
       html.classList.remove('sg-game');
       root.remove();
       if (player) player.classList.remove('sg-pin');
@@ -294,12 +348,19 @@
     function poll() {
       attempts++;
       if (!servers.length) servers = findServers();
+      if (attempts === 2 && servers.length) {
+        // Some sites only load the real stream once a server is chosen. Only do
+        // this once per page, in case the button reloads the page.
+        var key = 'sg-auto:' + location.pathname + location.search;
+        if (!store(key)) { store(key, '1'); servers[0].node.click(); }
+      }
+      if (attempts < 4) return;
       var p = findPlayer();
       if (p) { pin(p); clearInterval(timer); return; }
-      if (attempts === 4 && servers.length) servers[0].node.click();
       if (attempts >= 40) {
         clearInterval(timer);
-        statusText.textContent = 'This stream isn’t available yet. Press OK for options.';
+        statusText.textContent = 'This stream isn’t available yet.';
+        togglePanel(true);
       }
     }
     timer = setInterval(poll, 500);
@@ -374,7 +435,8 @@
       var rows = readRows();
       if (rows.length || tries >= 10) {
         var known = TABS.some(function (t) { return t[1] === location.pathname.replace(/\/$/, ''); });
-        if (rows.length || known) showListing(rows); else startGeneric();
+        var challenge = /just a moment|attention required|checking your browser/i.test(document.title);
+        if (!challenge && (rows.length || known)) showListing(rows); else startGeneric();
         return;
       }
       tries++;

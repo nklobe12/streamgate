@@ -84,7 +84,12 @@ public class StreamGateActivity extends Activity {
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
         s.setSupportMultipleWindows(true);   // Routes every popup through onCreateWindow.
         s.setJavaScriptCanOpenWindowsAutomatically(true);
-        s.setUserAgentString(s.getUserAgentString().replace("; wv", ""));
+        s.setDatabaseEnabled(true);
+        s.setLoadWithOverviewMode(true);
+        s.setUseWideViewPort(true);
+        // Players can refuse to run when the browser identifies itself as an app.
+        s.setUserAgentString(s.getUserAgentString().replace("; wv", "")
+                .replaceAll("Version/[0-9.]+ ", ""));
 
         web.addJavascriptInterface(new NativeBridge(), "SGNative");
         web.setWebViewClient(new GateClient());
@@ -115,7 +120,8 @@ public class StreamGateActivity extends Activity {
         @Override
         public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest req) {
             if (!Policy.isBlocked(req.getUrl().getHost(), blockedHosts)) return null;
-            return new WebResourceResponse("text/plain", "utf-8",
+            return new WebResourceResponse("text/plain", "utf-8", 204, "No Content",
+                    Collections.singletonMap("Access-Control-Allow-Origin", "*"),
                     new ByteArrayInputStream(new byte[0]));
         }
 
