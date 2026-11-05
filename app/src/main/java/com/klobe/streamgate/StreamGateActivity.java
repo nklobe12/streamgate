@@ -42,7 +42,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 
-public class MainActivity extends Activity {
+public class StreamGateActivity extends Activity {
     private static final String HOME = "https://mybuffstreams.plus/home7";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -142,7 +142,7 @@ public class MainActivity extends Activity {
          */
         @Override
         public boolean onCreateWindow(WebView view, boolean dialog, boolean gesture, Message msg) {
-            final WebView probe = new WebView(MainActivity.this);
+            final WebView probe = new WebView(StreamGateActivity.this);
             final boolean[] done = {false};
             final Runnable finish = () -> {
                 if (!done[0]) { done[0] = true; probe.destroy(); }
@@ -251,7 +251,7 @@ public class MainActivity extends Activity {
     private class NativeBridge {
         @JavascriptInterface
         public void tap() {
-            handler.post(MainActivity.this::tapCenter);
+            handler.post(StreamGateActivity.this::tapCenter);
         }
     }
 
