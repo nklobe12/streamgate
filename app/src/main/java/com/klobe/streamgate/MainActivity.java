@@ -2,10 +2,7 @@ package com.klobe.streamgate;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
-import android.content.Context;
-import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.Paint;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -18,6 +15,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.JsPromptResult;
 import android.webkit.JsResult;
 import android.webkit.RenderProcessGoneDetail;
@@ -33,6 +31,8 @@ import android.widget.Toast;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 
+import org.json.JSONObject;
+
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -44,18 +44,13 @@ import java.util.Set;
 
 public class MainActivity extends Activity {
     private static final String HOME = "https://mybuffstreams.plus/home7";
-    private static final int CURSOR_SIZE = 34;
-    private static final long CURSOR_HIDE_MS = 4000;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private final Runnable hideCursor = () -> { if (this.cursor != null) this.cursor.setAlpha(0f); };
     private final Set<String> blockedHosts = new HashSet<>();
 
+    private final GateChrome chrome = new GateChrome();
     private FrameLayout root;
     private WebView web;
-    private View cursor;
-    private float cursorX;
-    private float cursorY;
     private View customView;
     private WebChromeClient.CustomViewCallback customCallback;
     private String shieldJs = "";
@@ -67,21 +62,16 @@ public class MainActivity extends Activity {
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         loadBlockedHosts();
-        shieldJs = readAsset("shield.js");
+        // The stylesheet is embedded as a JSON-safe string for tv.js to apply.
+        shieldJs = readAsset("shield.js") + "\nwindow.__sgCss=" + JSONObject.quote(readAsset("tv.css"))
+                + ";\n" + readAsset("tv.js");
 
         root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
-        cursor = new CursorView(this);
-        root.addView(cursor, new FrameLayout.LayoutParams(CURSOR_SIZE, CURSOR_SIZE));
         setContentView(root);
         createWebView();
         web.loadUrl(HOME);
 
-        root.post(() -> {
-            cursorX = root.getWidth() / 2f;
-            cursorY = root.getHeight() / 2f;
-            placeCursor();
-        });
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -96,8 +86,9 @@ public class MainActivity extends Activity {
         s.setJavaScriptCanOpenWindowsAutomatically(true);
         s.setUserAgentString(s.getUserAgentString().replace("; wv", ""));
 
+        web.addJavascriptInterface(new NativeBridge(), "SGNative");
         web.setWebViewClient(new GateClient());
-        web.setWebChromeClient(new GateChrome());
+        web.setWebChromeClient(chrome);
         // No DownloadListener is set, so forced downloads are ignored.
 
         documentStartScript = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT);
@@ -117,7 +108,7 @@ public class MainActivity extends Activity {
             boolean allow = req.isForMainFrame()
                     ? Policy.allowTopLevel(u.getScheme(), u.getHost())
                     : Policy.allowSubframe(u.getScheme(), u.getHost(), blockedHosts);
-            if (!allow) notifyBlocked(u);
+            if (!allow && req.hasGesture()) notifyBlocked(u);
             return !allow;
         }
 
@@ -160,7 +151,7 @@ public class MainActivity extends Activity {
                 private void resolve(Uri u) {
                     if (done[0]) return;
                     if (Policy.allowTopLevel(u.getScheme(), u.getHost())) web.loadUrl(u.toString());
-                    else notifyBlocked(u);
+                    else if (gesture) notifyBlocked(u);
                     handler.post(finish);
                 }
                 @Override
@@ -203,20 +194,20 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** The site isn't built for a remote, so the D-pad drives an on-screen pointer. */
+    /** Remote presses go straight to the TV interface, whichever frame has focus. */
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
         boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
-        int step = 12 + Math.min(e.getRepeatCount() * 5, 48);
         switch (e.getKeyCode()) {
-            case KeyEvent.KEYCODE_DPAD_UP:    if (down) moveCursor(0, -step); return true;
-            case KeyEvent.KEYCODE_DPAD_DOWN:  if (down) moveCursor(0, step);  return true;
-            case KeyEvent.KEYCODE_DPAD_LEFT:  if (down) moveCursor(-step, 0); return true;
-            case KeyEvent.KEYCODE_DPAD_RIGHT: if (down) moveCursor(step, 0);  return true;
+            case KeyEvent.KEYCODE_DPAD_UP:    return sendKey(down, "up");
+            case KeyEvent.KEYCODE_DPAD_DOWN:  return sendKey(down, "down");
+            case KeyEvent.KEYCODE_DPAD_LEFT:  return sendKey(down, "left");
+            case KeyEvent.KEYCODE_DPAD_RIGHT: return sendKey(down, "right");
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
-                if (down && e.getRepeatCount() == 0) touch(MotionEvent.ACTION_DOWN);
-                else if (!down) touch(MotionEvent.ACTION_UP);
+                return sendKey(down && e.getRepeatCount() == 0, "ok");
+            case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
+                if (down && e.getRepeatCount() == 0) tapCenter();
                 return true;
             case KeyEvent.KEYCODE_BACK:
                 if (!down) goBack();
@@ -226,41 +217,42 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void moveCursor(int dx, int dy) {
-        float nx = cursorX + dx;
-        float ny = cursorY + dy;
-        int maxX = root.getWidth() - 1;
-        int maxY = root.getHeight() - 1;
-        // Pushing past the top or bottom edge scrolls the page.
-        if (customView == null && (ny < 0 || ny > maxY)) {
-            web.evaluateJavascript("window.scrollBy(0," + (dy * 3) + ")", null);
-        }
-        cursorX = Math.max(0, Math.min(nx, maxX));
-        cursorY = Math.max(0, Math.min(ny, maxY));
-        placeCursor();
-    }
-
-    private void placeCursor() {
-        cursor.setTranslationX(cursorX - CURSOR_SIZE / 2f);
-        cursor.setTranslationY(cursorY - CURSOR_SIZE / 2f);
-        cursor.setAlpha(1f);
-        cursor.bringToFront();
-        handler.removeCallbacks(hideCursor);
-        handler.postDelayed(hideCursor, CURSOR_HIDE_MS);
-    }
-
-    private void touch(int action) {
-        long t = SystemClock.uptimeMillis();
-        MotionEvent ev = MotionEvent.obtain(t, t, action, cursorX, cursorY, 0);
-        ev.setSource(InputDevice.SOURCE_TOUCHSCREEN);
-        root.dispatchTouchEvent(ev);
-        ev.recycle();
+    private boolean sendKey(boolean send, String key) {
+        if (send) web.evaluateJavascript("window.__sgKey&&__sgKey('" + key + "')", null);
+        return true;
     }
 
     private void goBack() {
-        if (customView != null) web.getWebChromeClient().onHideCustomView();
-        else if (web.canGoBack()) web.goBack();
-        else finish();
+        if (customView != null) {
+            chrome.onHideCustomView();
+            return;
+        }
+        web.evaluateJavascript("window.__sgBack?__sgBack():'history'", result -> {
+            if ("\"handled\"".equals(result)) return;
+            if (!"\"exit\"".equals(result) && web.canGoBack()) web.goBack();
+            else finish();
+        });
+    }
+
+    /** Some players need one real tap before they start. */
+    private void tapCenter() {
+        float x = root.getWidth() / 2f;
+        float y = root.getHeight() / 2f;
+        long t = SystemClock.uptimeMillis();
+        for (int action : new int[] {MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP}) {
+            MotionEvent ev = MotionEvent.obtain(t, SystemClock.uptimeMillis(), action, x, y, 0);
+            ev.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+            root.dispatchTouchEvent(ev);
+            ev.recycle();
+        }
+    }
+
+    /** Exposed to page scripts, so it offers nothing beyond a tap on the player. */
+    private class NativeBridge {
+        @JavascriptInterface
+        public void tap() {
+            handler.post(MainActivity.this::tapCenter);
+        }
     }
 
     private void notifyBlocked(Uri u) {
@@ -297,23 +289,5 @@ public class MainActivity extends Activity {
         handler.removeCallbacksAndMessages(null);
         web.destroy();
         super.onDestroy();
-    }
-
-    private static class CursorView extends View {
-        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-
-        CursorView(Context c) { super(c); }
-
-        @Override
-        protected void onDraw(Canvas canvas) {
-            float mid = getWidth() / 2f;
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(0xCCFFFFFF);
-            canvas.drawCircle(mid, mid, mid - 5, paint);
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(3);
-            paint.setColor(0xFF000000);
-            canvas.drawCircle(mid, mid, mid - 4, paint);
-        }
     }
 }

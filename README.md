@@ -2,7 +2,7 @@
 
 Fire TV app that opens the site full-screen, stays on it, and blocks ads, popups, and off-site redirects.
 
-Remote: D-pad moves the pointer, OK clicks, Back goes back. Push the pointer past the top or bottom edge to scroll.
+Remote: the D-pad moves through tabs and game rows, OK opens a game, and Back goes back. During a game, press OK for streams and options.
 
 Build: every push to `main` publishes `StreamGate.apk` to the `latest` GitHub release.
 
