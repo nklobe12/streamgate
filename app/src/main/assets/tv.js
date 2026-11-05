@@ -11,6 +11,7 @@
   var SKIP_PATH = /^\/(login|signin|signup|register|about|contact|terms|privacy|dmca|faq|discord|account|blog|premium|settings)\b/i;
   var SERVER_LABEL = /^(server|source|stream|link|mirror|backup|player|option)\s*#?\s*\d*$/i;
   var LIVE = /\blive\b|in progress|halftime|minutes? ago|\bq[1-4]\b/i;
+  var ENDED = /\b(ended|finished|final|replay|full time)\b/i;
   var WHEN = /\d{1,2}:\d{2}|\b\d{1,2}\s*(am|pm)\b|today|tomorrow|starts? in|\bago\b|\b(mon|tue|wed|thu|fri|sat|sun)\b/i;
   var mode = 'pending', keyHandler = null, backHandler = null, root = null;
 
@@ -78,9 +79,12 @@
   }
 
   function parseGame(a) {
-    var lines = textLines(a), status = '', title = '', live = false;
+    var lines = textLines(a), status = '', title = '', ended = false;
+    // Sites often mark a live event with a styled badge instead of the word.
+    var live = /(^|[-_\s])live([-_\s]|$)/i.test(a.className) || !!a.querySelector('[class*="live" i],[data-live="true"]');
     lines.forEach(function (l) {
-      if (l.length < 28 && LIVE.test(l)) { live = true; return; }
+      if (l.length < 28 && ENDED.test(l)) { ended = true; return; }
+      if (l.length < 28 && (/^started\b.*\d|^started\s*$/i.test(l) || LIVE.test(l))) { live = true; return; }
       if (l.length < 28 && WHEN.test(l)) { status = status || l; return; }
       if (l.length > title.length) title = l;
     });
@@ -90,7 +94,7 @@
     }
     var teams = title.split(/\s+(?:vs\.?|v\.?|@)\s+/i);
     if (teams.length !== 2) teams = [title];
-    return { url: a.href, teams: teams, name: title, status: status, live: live };
+    return { url: a.href, teams: teams, name: title, status: status, live: live && !ended, ended: ended };
   }
 
   function eventLinks() {
@@ -116,13 +120,71 @@
       if (links.indexOf(n) < 0 || seen[n.href]) return;
       seen[n.href] = true;
       if (!current) { current = { title: 'Events', games: [] }; rows.push(current); }
-      current.games.push(parseGame(n));
+      var game = parseGame(n);
+      if (!game.ended) current.games.push(game);
     });
     rows = rows.filter(function (r) { return r.games.length && r.title.length < 40; });
-    rows.forEach(function (r) {
-      r.games.sort(function (x, y) { return (y.live ? 1 : 0) - (x.live ? 1 : 0); });
-    });
+    sortRows(rows);
     return rows;
+  }
+
+  function sortRows(rows) {
+    rows.forEach(function (r) {
+      r.games.sort(function (x, y) {
+        return (y.live ? 1 : 0) - (x.live ? 1 : 0) || (x.when || 0) - (y.when || 0);
+      });
+    });
+    rows.sort(function (x, y) {
+      var a = x.games.filter(function (g) { return g.live; }).length;
+      var b = y.games.filter(function (g) { return g.live; }).length;
+      return (b ? 1 : 0) - (a ? 1 : 0);
+    });
+  }
+
+  function clock(ms) {
+    var d = new Date(ms), now = new Date();
+    var time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    if (d.toDateString() === now.toDateString()) return time;
+    return d.toLocaleDateString([], { weekday: 'short' }) + ' ' + time;
+  }
+
+  // The site's own event feed, when it has one. It covers every event and gives
+  // exact start and end times, so live status doesn't rely on reading the page.
+  function loadFeed(done) {
+    var finished = false;
+    function finish(rows) { if (!finished) { finished = true; done(rows); } }
+    setTimeout(function () { finish(null); }, 5000);
+    fetch('/api/streams', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) { finish(data ? feedRows(data) : null); })
+      .catch(function () { finish(null); });
+  }
+
+  function feedRows(data) {
+    var groups = {}, order = [], now = Date.now();
+    function ms(v) { var n = Number(v) || 0; return n && n < 1e12 ? n * 1000 : n; }
+    (function walk(o, category) {
+      if (Array.isArray(o)) { o.forEach(function (x) { walk(x, category); }); return; }
+      if (!o || typeof o !== 'object') return;
+      if (o.name && o.uri_name) {
+        var start = ms(o.starts_at), end = ms(o.ends_at), always = !!o.always_live;
+        if (!always && end && now > end) return;
+        var live = always || !start || now >= start;
+        var title = clean(o.name), teams = title.split(/\s+(?:vs\.?|v\.?|@)\s+/i);
+        var group = clean(o.category_name) || category || 'Events';
+        if (!groups[group]) { groups[group] = { title: group, games: [] }; order.push(group); }
+        groups[group].games.push({
+          url: location.origin + '/live/' + o.uri_name, name: title, teams: teams.length === 2 ? teams : [title],
+          status: start ? clock(start) : '', live: live, when: start
+        });
+        return;
+      }
+      var next = typeof o.category === 'string' ? o.category : category;
+      Object.keys(o).forEach(function (k) { walk(o[k], next); });
+    })(data, '');
+    var rows = order.map(function (k) { return groups[k]; });
+    sortRows(rows);
+    return rows.length ? rows : null;
   }
 
   // ---------- Event rows ----------
@@ -135,17 +197,29 @@
     root.id = 'sg-root';
     document.body.appendChild(root);
 
-    var live = [];
-    allRows.forEach(function (r) { r.games.forEach(function (g) { if (g.live) live.push(g); }); });
-    var titles = ['Home'].concat(allRows.map(function (r) { return r.title; }));
-    var tabs = el('div', 'sg-tabs'), tabEls = titles.map(function (t) {
-      var b = el('div', 'sg-tab', t);
-      tabs.appendChild(b);
-      return b;
-    });
-    var scroller = el('div', 'sg-rows');
+    var live = [], titles = [], tabEls = [];
+    var tabs = el('div', 'sg-tabs'), summary = el('div', 'sg-summary'), scroller = el('div', 'sg-rows');
     root.appendChild(tabs);
+    root.appendChild(summary);
     root.appendChild(scroller);
+
+    function loadRows(rows) {
+      allRows = rows;
+      live = [];
+      var total = 0;
+      rows.forEach(function (r) {
+        r.games.forEach(function (g) { total++; if (g.live) live.push(g); });
+      });
+      titles = ['Home'].concat(rows.map(function (r) { return r.title; }));
+      tabs.textContent = '';
+      tabEls = titles.map(function (t) {
+        var b = el('div', 'sg-tab', t);
+        tabs.appendChild(b);
+        return b;
+      });
+      summary.textContent = live.length + ' live · ' + (total - live.length) + ' not started · Updated ' + clock(Date.now());
+    }
+    loadRows(allRows);
 
     var activeTab = 0, grid = [], pos = { r: 0, c: 0 };
 
@@ -178,7 +252,8 @@
           var c = el('div', 'sg-card');
           c.dataset.url = g.url;
           c.dataset.name = g.name;
-          c.appendChild(el('div', g.live ? 'sg-status sg-live' : 'sg-status', g.live ? 'LIVE' : g.status || 'Upcoming'));
+          c.appendChild(el('div', g.live ? 'sg-status sg-live' : 'sg-status',
+            g.live ? 'LIVE' : g.status ? 'Not started · ' + g.status : 'Not started'));
           g.teams.forEach(function (t) { c.appendChild(el('div', 'sg-team', t)); });
           track.appendChild(c);
           cards.push(c);
@@ -195,7 +270,50 @@
       focus();
     }
 
+    function signature(rows) {
+      return JSON.stringify(rows.map(function (r) {
+        return [r.title, r.games.map(function (g) { return [g.url, g.live, g.status]; })];
+      }));
+    }
+    var lastSignature = signature(allRows), lastKey = Date.now(), lastReload = Date.now();
+
+    function apply(rows) {
+      var sig = signature(rows);
+      if (sig === lastSignature) {
+        summary.textContent = summary.textContent.replace(/Updated .*/, 'Updated ' + clock(Date.now()));
+        return;
+      }
+      lastSignature = sig;
+      var tabTitle = titles[activeTab], current = grid[pos.r] && grid[pos.r][pos.c];
+      var url = pos.r && current ? current.dataset.url : null, onTabs = pos.r === 0, r = pos.r, c = pos.c;
+      loadRows(rows);
+      var tab = Math.max(0, titles.indexOf(tabTitle));
+      render(tab, url);
+      // Keep the selection where it was if that event has gone.
+      if (onTabs) pos = { r: 0, c: tab };
+      else if (url && grid[pos.r][pos.c].dataset.url !== url) {
+        pos.r = Math.min(r, grid.length - 1);
+        pos.c = Math.min(c, grid[pos.r].length - 1);
+      }
+      focus();
+    }
+    function refresh() {
+      loadFeed(function (rows) {
+        if (rows) { apply(rows); return; }
+        var read = readRows();
+        if (read.length) apply(read);
+        // Without a feed, a quiet reload is the only way to pick up new events.
+        if (Date.now() - lastKey > 20000 && Date.now() - lastReload > 180000) {
+          store('sg-tab', String(activeTab));
+          location.reload();
+        }
+      });
+    }
+    setInterval(refresh, 60000);
+    window.__sgRefresh = refresh;
+
     keyHandler = function (k) {
+      lastKey = Date.now();
       if (k === 'up' && pos.r > 0) {
         pos.r--;
         pos.c = pos.r === 0 ? activeTab : Math.min(pos.c, grid[pos.r].length - 1);
@@ -449,7 +567,7 @@
   function route() {
     var home = location.pathname === '/' || /^\/(home|index)/i.test(location.pathname);
     var tries = 0, lastCount = -1;
-    (function attempt() {
+    function attempt() {
       var challenge = /just a moment|attention required|checking your browser/i.test(document.title);
       var rows = challenge ? [] : readRows();
       var count = rows.reduce(function (n, r) { return n + r.games.length; }, 0);
@@ -461,7 +579,11 @@
       if (settled) { showListing(rows); return; }
       if (tries >= 25) { startGeneric(); return; }
       setTimeout(attempt, 400);
-    })();
+    }
+    if (!home) { attempt(); return; }
+    loadFeed(function (rows) {
+      if (rows) showListing(rows); else attempt();
+    });
   }
 
   ready(function () {

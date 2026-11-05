@@ -39,9 +39,17 @@ html.sg-list body > *:not(#sg-root) { display: none !important; }
 .sg-tab.sg-active { color: #fff; font-weight: 700; }
 .sg-tab.sg-focus { background: #fff; color: #0d1016; }
 
+.sg-summary {
+  position: absolute;
+  top: 5.2em;
+  right: 3em;
+  color: #a4adbb;
+  font-size: 1.05em;
+}
+
 .sg-rows {
   position: absolute;
-  top: 6.8em;
+  top: 8em;
   right: 0;
   bottom: 0;
   left: 0;
