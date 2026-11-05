@@ -3,19 +3,15 @@
 // The app sends remote presses here through window.__sgKey and __sgBack.
 (function () {
   if (window.top !== window || window.__sgTv) return;
-  if (location.hostname.indexOf('buffstreams.') < 0) return;
+  if (!/(^|\.)ppv\.[a-z]{2,4}$/i.test(location.hostname)) return;
   window.__sgTv = true;
 
-  var HOME = '/home7';
-  var TABS = [
-    ['Home', HOME], ['NFL', '/nflstreams2'], ['NBA', '/nbastreams2'], ['NHL', '/nhlstreams2'],
-    ['MLB', '/mlb-live-streams'], ['Soccer', '/soccer-live-streams'], ['College FB', '/cfbstreams2'],
-    ['NCAA', '/ncaastreams'], ['UFC / MMA', '/mmastreams2'], ['Boxing', '/boxingstreams2'],
-    ['F1', '/f1streams2'], ['WWE', '/wwestreams'], ['WNBA', '/wnbastreams']
-  ];
-  var GAME_PATH = /^\/[^/]+\/[^/]+\/\d+\/?$|^\/title-game\//;
-  var SERVER_LABEL = /^(server\s*\d*|backup\s*\d*|link\s*\d+|stream\s*\d+|mirror\s*\d*)$/i;
-  var LIVE = /in progress|halftime|live now|minutes? ago|\bq[1-4]\b|\bot\b/i;
+  // The site's layout can't be assumed, so events are recognised by their links.
+  var EVENT_PATH = /^\/(live|watch|events?|streams?|match|game|embed)\/./i;
+  var SKIP_PATH = /^\/(login|signin|signup|register|about|contact|terms|privacy|dmca|faq|discord|account|blog|premium|settings)\b/i;
+  var SERVER_LABEL = /^(server|source|stream|link|mirror|backup|player|option)\s*#?\s*\d*$/i;
+  var LIVE = /\blive\b|in progress|halftime|minutes? ago|\bq[1-4]\b/i;
+  var WHEN = /\d{1,2}:\d{2}|\b\d{1,2}\s*(am|pm)\b|today|tomorrow|starts? in|\bago\b|\b(mon|tue|wed|thu|fri|sat|sun)\b/i;
   var mode = 'pending', keyHandler = null, backHandler = null, root = null;
 
   function store(k, v) {
@@ -51,7 +47,6 @@
     obs.disconnect();
     boot();
   }).observe(document, { childList: true });
-  var isGame = GAME_PATH.test(location.pathname);
 
   // If anything goes wrong, show the real page rather than a blank screen.
   setTimeout(function () {
@@ -59,7 +54,7 @@
       document.documentElement.classList.remove('sg-boot');
       startGeneric();
     }
-  }, 8000);
+  }, 14000);
 
   function ready(fn) {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn);
@@ -68,102 +63,91 @@
 
   // ---------- Reading the site's pages ----------
 
-  function parseGame(a) {
-    var url = a.href, text = clean(a.textContent).replace(/\s*Live Streams?\s*$/i, '');
-    var title = clean(a.getAttribute('title')).replace(/^\S*streams\s+/i, '');
-    var teams = title.split(/\s+vs\.?\s+/i), status = text, name;
-    if (teams.length === 2) {
-      status = clean(text.replace(teams[0], '').replace(teams[1], ''));
-      name = teams[0] + ' vs ' + teams[1];
-    } else {
-      var dash = text.split(/\s+-\s+/);
-      teams = [dash[0]];
-      name = dash[0];
-      status = clean(dash.slice(1).join(' - '));
+  function textLines(a) {
+    var lines = [], walk = document.createTreeWalker(a, NodeFilter.SHOW_TEXT);
+    while (walk.nextNode()) {
+      var t = clean(walk.currentNode.nodeValue);
+      if (t) lines.push(t);
     }
-    return { url: url, teams: teams, name: name, status: status, live: LIVE.test(status) };
+    return lines;
+  }
+
+  function slugName(path) {
+    var part = path.split('/').filter(Boolean).pop() || '';
+    return part.replace(/[-_]+/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+  }
+
+  function parseGame(a) {
+    var lines = textLines(a), status = '', title = '', live = false;
+    lines.forEach(function (l) {
+      if (l.length < 28 && LIVE.test(l)) { live = true; return; }
+      if (l.length < 28 && WHEN.test(l)) { status = status || l; return; }
+      if (l.length > title.length) title = l;
+    });
+    if (!title) {
+      var img = a.querySelector('img');
+      title = clean(a.getAttribute('title')) || clean(img && img.alt) || slugName(a.pathname);
+    }
+    var teams = title.split(/\s+(?:vs\.?|v\.?|@)\s+/i);
+    if (teams.length !== 2) teams = [title];
+    return { url: a.href, teams: teams, name: title, status: status, live: live };
+  }
+
+  function eventLinks() {
+    var all = Array.prototype.filter.call(document.querySelectorAll('a[href]'), function (a) {
+      return a.host === location.host && a.pathname !== '/' && !SKIP_PATH.test(a.pathname) &&
+        !a.closest('#sg-root,nav,header,footer');
+    });
+    var strict = all.filter(function (a) { return EVENT_PATH.test(a.pathname); });
+    if (strict.length) return strict;
+    var deep = all.filter(function (a) { return a.pathname.split('/').filter(Boolean).length >= 2; });
+    return deep.length ? deep : all;
   }
 
   function readRows() {
-    var rows = [], current = null, seen = {};
-    document.querySelectorAll('h1,h2,h3,h4,a[href]').forEach(function (n) {
+    var links = eventLinks(), rows = [], current = null, seen = {};
+    document.querySelectorAll('h1,h2,h3,h4,h5,a[href]').forEach(function (n) {
       if (n.closest('#sg-root')) return;
       if (n.tagName !== 'A') {
-        var title = clean(n.textContent).replace(/^Upcoming\s+/i, '').replace(/\s+Streams?\s+Links?$/i, '');
-        current = { title: title, games: [] };
+        current = { title: clean(n.textContent), games: [] };
         rows.push(current);
         return;
       }
-      if (n.host !== location.host || !GAME_PATH.test(n.pathname) || seen[n.href]) return;
+      if (links.indexOf(n) < 0 || seen[n.href]) return;
       seen[n.href] = true;
-      if (!current) { current = { title: 'Featured', games: [] }; rows.push(current); }
+      if (!current) { current = { title: 'Events', games: [] }; rows.push(current); }
       current.games.push(parseGame(n));
     });
-    rows = rows.filter(function (r) { return r.games.length; });
+    rows = rows.filter(function (r) { return r.games.length && r.title.length < 40; });
     rows.forEach(function (r) {
       r.games.sort(function (x, y) { return (y.live ? 1 : 0) - (x.live ? 1 : 0); });
     });
-    var live = [];
-    rows.forEach(function (r) { r.games.forEach(function (g) { if (g.live) live.push(g); }); });
-    if (live.length && rows.length > 1) {
-      rows = rows.filter(function (r) {
-        return r.title !== 'Featured' || !r.games.every(function (g) { return g.live; });
-      });
-      rows.unshift({ title: 'Live now', games: live });
-    }
     return rows;
   }
 
-  // ---------- Game rows ----------
+  // ---------- Event rows ----------
 
-  function showListing(rows) {
+  function showListing(allRows) {
     mode = 'listing';
     document.documentElement.classList.remove('sg-boot');
     document.documentElement.classList.add('sg-list');
-    root = root || el('div');
+    root = el('div');
     root.id = 'sg-root';
-    root.textContent = '';
     document.body.appendChild(root);
 
-    var path = location.pathname.replace(/\/$/, '');
-    var activeTab = 0;
-    var tabs = el('div', 'sg-tabs'), tabEls = [];
-    TABS.forEach(function (t, i) {
-      var b = el('div', 'sg-tab', t[0]);
-      if (t[1] === path) { b.classList.add('sg-active'); activeTab = i; }
+    var live = [];
+    allRows.forEach(function (r) { r.games.forEach(function (g) { if (g.live) live.push(g); }); });
+    var titles = ['Home'].concat(allRows.map(function (r) { return r.title; }));
+    var tabs = el('div', 'sg-tabs'), tabEls = titles.map(function (t) {
+      var b = el('div', 'sg-tab', t);
       tabs.appendChild(b);
-      tabEls.push(b);
+      return b;
     });
-    root.appendChild(tabs);
-
     var scroller = el('div', 'sg-rows');
+    root.appendChild(tabs);
     root.appendChild(scroller);
-    var grid = [tabEls];
-    rows.forEach(function (r) {
-      var sec = el('section', 'sg-row');
-      sec.appendChild(el('h2', 'sg-row-title', r.title));
-      var track = el('div', 'sg-track'), cards = [];
-      r.games.forEach(function (g) {
-        var c = el('div', 'sg-card');
-        c.dataset.url = g.url;
-        c.dataset.name = g.name;
-        var meta = el('div', g.live ? 'sg-status sg-live' : 'sg-status', g.live ? 'LIVE' : g.status);
-        c.appendChild(meta);
-        g.teams.forEach(function (t) { c.appendChild(el('div', 'sg-team', t)); });
-        track.appendChild(c);
-        cards.push(c);
-      });
-      sec.appendChild(track);
-      scroller.appendChild(sec);
-      grid.push(cards);
-    });
-    if (!rows.length) scroller.appendChild(el('div', 'sg-empty', 'No games listed right now'));
 
-    var pos = { r: rows.length ? 1 : 0, c: rows.length ? 0 : activeTab };
-    var saved = store('sg-focus:' + path);
-    if (saved) grid.forEach(function (cards, r) {
-      cards.forEach(function (c, i) { if (c.dataset.url === saved) pos = { r: r, c: i }; });
-    });
+    var activeTab = 0, grid = [], pos = { r: 0, c: 0 };
 
     function focus() {
       var old = root.querySelector('.sg-focus');
@@ -178,6 +162,39 @@
         track.scrollLeft = Math.max(0, item.offsetLeft - track.offsetLeft - innerWidth * 0.03);
       }
     }
+
+    function render(tab, focusUrl) {
+      activeTab = tab;
+      tabEls.forEach(function (b, i) { b.classList.toggle('sg-active', i === tab); });
+      scroller.textContent = '';
+      var rows = tab ? [allRows[tab - 1]] : allRows.slice();
+      if (!tab && live.length && allRows.length > 1) rows.unshift({ title: 'Live now', games: live });
+      grid = [tabEls];
+      rows.forEach(function (r) {
+        var sec = el('section', 'sg-row');
+        sec.appendChild(el('h2', 'sg-row-title', r.title));
+        var track = el('div', 'sg-track'), cards = [];
+        r.games.forEach(function (g) {
+          var c = el('div', 'sg-card');
+          c.dataset.url = g.url;
+          c.dataset.name = g.name;
+          c.appendChild(el('div', g.live ? 'sg-status sg-live' : 'sg-status', g.live ? 'LIVE' : g.status || 'Upcoming'));
+          g.teams.forEach(function (t) { c.appendChild(el('div', 'sg-team', t)); });
+          track.appendChild(c);
+          cards.push(c);
+        });
+        sec.appendChild(track);
+        scroller.appendChild(sec);
+        grid.push(cards);
+      });
+      if (!rows.length) scroller.appendChild(el('div', 'sg-empty', 'No events listed right now'));
+      pos = { r: rows.length ? 1 : 0, c: rows.length ? 0 : tab };
+      if (focusUrl) grid.forEach(function (cards, r) {
+        cards.forEach(function (c, i) { if (c.dataset.url === focusUrl) pos = { r: r, c: i }; });
+      });
+      focus();
+    }
+
     keyHandler = function (k) {
       if (k === 'up' && pos.r > 0) {
         pos.r--;
@@ -190,9 +207,10 @@
       } else if (k === 'right' && pos.c < grid[pos.r].length - 1) {
         pos.c++;
       } else if (k === 'ok') {
+        if (pos.r === 0) { render(pos.c); return; }
         var item = grid[pos.r][pos.c];
-        if (pos.r === 0) { location.href = TABS[pos.c][1]; return; }
-        store('sg-focus:' + path, item.dataset.url);
+        store('sg-focus', item.dataset.url);
+        store('sg-tab', String(activeTab));
         store('sg-name', item.dataset.name);
         location.href = item.dataset.url;
         return;
@@ -200,10 +218,11 @@
       focus();
     };
     backHandler = function () {
-      if (path !== HOME) { location.href = HOME; return 'handled'; }
+      if (activeTab) { render(0); return 'handled'; }
       return 'exit';
     };
-    focus();
+    var savedTab = parseInt(store('sg-tab'), 10) || 0;
+    render(savedTab < titles.length ? savedTab : 0, store('sg-focus'));
   }
 
   // ---------- Player ----------
@@ -357,7 +376,7 @@
       if (attempts < 4) return;
       var p = findPlayer();
       if (p) { pin(p); clearInterval(timer); return; }
-      if (attempts >= 40) {
+      if (attempts >= 50) {
         clearInterval(timer);
         statusText.textContent = 'This stream isn’t available yet.';
         togglePanel(true);
@@ -390,7 +409,7 @@
     document.documentElement.classList.remove('sg-boot');
     var current = null;
     function targets() {
-      return Array.prototype.filter.call(document.querySelectorAll('a[href],button,[role=button],input'), function (n) {
+      return Array.prototype.filter.call(document.querySelectorAll('a[href],button,[role=button],[onclick],[tabindex],input'), function (n) {
         var r = n.getBoundingClientRect();
         return r.width > 0 && r.height > 0;
       });
@@ -427,20 +446,26 @@
   window.__sgKey = function (k) { if (keyHandler) keyHandler(k); };
   window.__sgBack = function () { return backHandler ? backHandler() : 'history'; };
 
+  function route() {
+    var home = location.pathname === '/' || /^\/(home|index)/i.test(location.pathname);
+    var tries = 0, lastCount = -1;
+    (function attempt() {
+      var challenge = /just a moment|attention required|checking your browser/i.test(document.title);
+      var rows = challenge ? [] : readRows();
+      var count = rows.reduce(function (n, r) { return n + r.games.length; }, 0);
+      tries++;
+      // Events can arrive after the page loads, so wait for the count to settle.
+      var settled = count > 0 && count === lastCount;
+      lastCount = count;
+      if (!challenge && !home && (EVENT_PATH.test(location.pathname) || findPlayer())) { showGame(); return; }
+      if (settled) { showListing(rows); return; }
+      if (tries >= 25) { startGeneric(); return; }
+      setTimeout(attempt, 400);
+    })();
+  }
+
   ready(function () {
     if (!document.getElementById('sg-style')) addStyle();
-    if (isGame) { showGame(); return; }
-    var tries = 0;
-    (function attempt() {
-      var rows = readRows();
-      if (rows.length || tries >= 10) {
-        var known = TABS.some(function (t) { return t[1] === location.pathname.replace(/\/$/, ''); });
-        var challenge = /just a moment|attention required|checking your browser/i.test(document.title);
-        if (!challenge && (rows.length || known)) showListing(rows); else startGeneric();
-        return;
-      }
-      tries++;
-      setTimeout(attempt, 300);
-    })();
+    route();
   });
 })();

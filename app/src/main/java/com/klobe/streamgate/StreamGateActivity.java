@@ -43,7 +43,7 @@ import java.util.HashSet;
 import java.util.Set;
 
 public class StreamGateActivity extends Activity {
-    private static final String HOME = "https://mybuffstreams.plus/home7";
+    private static final String HOME = "https://ppv.tj/";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Set<String> blockedHosts = new HashSet<>();

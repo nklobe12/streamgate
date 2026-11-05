@@ -8,13 +8,11 @@ final class Policy {
     private Policy() {}
 
     /**
-     * True for the streaming site, its subdomains, and any sibling domain it
-     * moves to (e.g. mybuffstreams.xyz). All navigation here is always allowed.
+     * True for the streaming site, its subdomains, and any sister domain it
+     * moves to (e.g. ppv.to). All navigation here is always allowed.
      */
     static boolean isSite(String host) {
-        if (host == null) return false;
-        String h = host.toLowerCase(Locale.ROOT);
-        return h.contains("buffstreams.");
+        return host != null && host.toLowerCase(Locale.ROOT).matches("(.+\\.)?ppv\\.[a-z]{2,4}");
     }
 
     /** True if the host or any parent domain is listed, and it isn't the site itself. */
