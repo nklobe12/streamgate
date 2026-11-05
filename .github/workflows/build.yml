@@ -23,4 +23,4 @@ jobs:
         run: |
           cp app/build/outputs/apk/release/app-release.apk StreamGate.apk
           gh release delete latest --yes --cleanup-tag || true
-          gh release create latest StreamGate.apk --title "StreamGate" --notes "Latest build" --target "$GITHUB_SHA"
+          gh release create latest StreamGate.apk --title "DankyPlus" --notes "Latest build" --target "$GITHUB_SHA"

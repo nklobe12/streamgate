@@ -1,4 +1,4 @@
-# Fulu & StreamGate
+# DankyPlus
 
 A Fire TV app that opens to a menu of two ad-free apps. Fulu is the former CineShield.
 
