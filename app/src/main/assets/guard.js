@@ -300,6 +300,7 @@
         t: v.currentTime || 0,
         d: isFinite(v.duration) ? v.duration : -1,
         rate: v.playbackRate,
+        muted: v.muted || v.volume === 0,
         fit: v.style.objectFit === 'cover' ? 1 : 0,
         subs: subtitles(v),
         q: qualities()
@@ -329,6 +330,10 @@
     switch (d.cineshield) {
       case 'toggle': if (v.paused) v.play(); else v.pause(); break;
       case 'pause': v.pause(); break;
+      case 'mute':
+        v.muted = !!d.s;
+        if (!d.s && v.volume === 0) v.volume = 1;
+        break;
       case 'seek': v.currentTime = Math.max(0, v.currentTime + d.s); break;
       case 'fill': setFill(v, true); fillUp(true); break;
       case 'rate': v.playbackRate = d.s; break;

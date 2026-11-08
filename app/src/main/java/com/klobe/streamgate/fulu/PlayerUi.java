@@ -42,6 +42,8 @@ final class PlayerUi {
     private final TextView timeView;
     private final ProgressBar progress;
     private final TextView playButton;
+    private final TextView muteButton;
+    private boolean muted;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final Runnable hide = this::hideControls;
 
@@ -86,6 +88,8 @@ final class PlayerUi {
         row.addView(playButton);
         row.addView(TvMenu.control(c, "+10s", () -> seek(10)));
         row.addView(TvMenu.control(c, "+30s", () -> seek(30)));
+        muteButton = TvMenu.control(c, "Mute", this::toggleMute);
+        row.addView(muteButton);
         row.addView(TvMenu.control(c, "Settings", this::openSettings));
         bar.addView(row);
 
@@ -118,6 +122,8 @@ final class PlayerUi {
         last = s;
         playing = nowPlaying;
         playButton.setText(playing ? "Pause" : "Play");
+        muted = s.optBoolean("muted");
+        muteButton.setText(muted ? "Unmute" : "Mute");
         double t = s.optDouble("t", 0);
         progress.setProgress(duration > 0 ? (int) (1000 * t / duration) : 0);
         timeView.setText(duration > 0 ? clock(t) + " / " + clock(duration) : "Live");
@@ -130,6 +136,12 @@ final class PlayerUi {
         return s >= 3600
                 ? String.format(Locale.US, "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60)
                 : String.format(Locale.US, "%d:%02d", s / 60, s % 60);
+    }
+
+    private void toggleMute() {
+        muted = !muted;
+        muteButton.setText(muted ? "Unmute" : "Mute");
+        host.command("mute", muted ? 1 : 0);
     }
 
     private void seek(int seconds) {
