@@ -1,10 +1,10 @@
-// Remote control for the real ppv.tj site. Runs in the top frame only.
+// Remote control for the real streamcorner.st site. Runs in the top frame only.
 // The D-pad moves a highlight between things on the page, OK selects, and
 // OK on a video player taps it, then fills the screen with it.
 // The app sends remote presses here through window.__sgKey and __sgBack.
 (function () {
   if (window.top !== window || window.__sgTv) return;
-  if (!/(^|\.)ppv\.[a-z]{2,4}$/i.test(location.hostname)) return;
+  if (!/(^|\.)streamcorner\.[a-z]{2,4}$/i.test(location.hostname)) return;
   window.__sgTv = true;
 
   var TARGETS = 'a[href],button,input,select,textarea,summary,iframe,video,' +
