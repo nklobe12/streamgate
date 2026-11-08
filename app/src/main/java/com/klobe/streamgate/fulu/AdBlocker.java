@@ -18,7 +18,12 @@ import java.util.Set;
 /** Decides which hosts are the site, and which are ad or tracker hosts. */
 final class AdBlocker {
     /** The site itself. The host and all its subdomains count as "same website". */
-    private static final String[] SITE_HOSTS = {"cinejoy.pk", "cinejoy.to"};
+    /** The site the current screen is showing. Set by FuluActivity before loading. */
+    private static volatile String[] SITE_HOSTS = {"cinejoy.pk", "cinejoy.to"};
+
+    static void setSites(String[] hosts) {
+        SITE_HOSTS = hosts.clone();
+    }
 
     private static final String[] AD_WORDS = {
             "popads", "popcash", "propellerads", "adsterra", "exoclick", "juicyads",

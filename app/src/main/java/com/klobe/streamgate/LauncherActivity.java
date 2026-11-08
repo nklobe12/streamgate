@@ -45,8 +45,8 @@ public class LauncherActivity extends Activity {
 
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER);
-        FrameLayout fulu = tile(R.drawable.logo_fulu, "Fulu", FuluActivity.class, width, height);
-        FrameLayout gate = tile(R.drawable.logo_streamgate, "StreamGate", StreamGateActivity.class, width, height);
+        FrameLayout fulu = tile(R.drawable.logo_fulu, "Fulu", FuluActivity.SITE_FULU, width, height);
+        FrameLayout gate = tile(R.drawable.logo_streamgate, "StreamGate", FuluActivity.SITE_STREAMGATE, width, height);
         LinearLayout.LayoutParams gapped = new LinearLayout.LayoutParams(width, height);
         gapped.setMarginEnd(gap);
         row.addView(fulu, gapped);
@@ -57,7 +57,7 @@ public class LauncherActivity extends Activity {
         ("gate".equals(prefs.getString("last", "fulu")) ? gate : fulu).requestFocus();
     }
 
-    private FrameLayout tile(int image, String name, Class<? extends Activity> target, int w, int h) {
+    private FrameLayout tile(int image, String name, String site, int w, int h) {
         float radius = h * 0.05f;
         int ring = Math.max(4, Math.round(h * 0.012f));
 
@@ -87,8 +87,8 @@ public class LauncherActivity extends Activity {
             v.setElevation(focused ? 8 : 0);
         });
         tile.setOnClickListener(v -> {
-            prefs.edit().putString("last", target == FuluActivity.class ? "fulu" : "gate").apply();
-            startActivity(new Intent(this, target));
+            prefs.edit().putString("last", FuluActivity.SITE_FULU.equals(site) ? "fulu" : "gate").apply();
+            startActivity(new Intent(this, FuluActivity.class).putExtra(FuluActivity.EXTRA_SITE, site));
         });
         return tile;
     }

@@ -25,11 +25,6 @@
             </intent-filter>
         </activity>
         <activity
-            android:name=".StreamGateActivity"
-            android:exported="false"
-            android:screenOrientation="landscape"
-            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode" />
-        <activity
             android:name=".fulu.FuluActivity"
             android:exported="false"
             android:screenOrientation="landscape"

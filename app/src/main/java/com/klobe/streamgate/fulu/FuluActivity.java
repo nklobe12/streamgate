@@ -45,7 +45,14 @@ import java.io.InputStream;
 import java.util.Collections;
 
 public class FuluActivity extends Activity {
-    private static final String HOME = "https://cinejoy.pk/";
+    /** Which site to show: {@link #SITE_FULU} (default) or {@link #SITE_STREAMGATE}. */
+    public static final String EXTRA_SITE = "site";
+    public static final String SITE_FULU = "fulu";
+    public static final String SITE_STREAMGATE = "streamgate";
+
+    private String HOME = "https://cinejoy.pk/";
+    private String[] sites = {"cinejoy.pk", "cinejoy.to"};
+    private String prefsName = "cineshield";
     private static final long CURSOR_HIDE_MS = 4000;
 
     private final AdBlocker blocker = new AdBlocker();
@@ -68,14 +75,23 @@ public class FuluActivity extends Activity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        if (SITE_STREAMGATE.equals(getIntent().getStringExtra(EXTRA_SITE))) {
+            HOME = "https://streamcorner.st/";
+            sites = new String[] {"streamcorner.st", "streamcorner.to"};
+            prefsName = "streamgate";
+        }
+        AdBlocker.setSites(sites);
         blocker.start(this);
-        guardJs = readAsset("guard.js");
+        String guard = readAsset("guard.js");
+        String siteList = "['cinejoy.pk', 'cinejoy.to']";
+        if (!guard.contains(siteList)) throw new IllegalStateException("guard.js site list moved");
+        guardJs = guard.replace(siteList, new org.json.JSONArray(java.util.Arrays.asList(sites)).toString());
 
         root = new FrameLayout(this);
         web = new WebView(this);
         root.addView(web, new FrameLayout.LayoutParams(-1, -1));
         setContentView(root);
-        prefs = getSharedPreferences("cineshield", MODE_PRIVATE);
+        prefs = getSharedPreferences(prefsName, MODE_PRIVATE);
         player = new PlayerUi(this, root, new PlayerUi.Host() {
             @Override
             public void command(String name, double value) {
@@ -470,6 +486,7 @@ public class FuluActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        AdBlocker.setSites(sites);
         web.onResume();
     }
 
