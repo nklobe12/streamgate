@@ -56,6 +56,7 @@ public class StreamGateActivity extends Activity {
     private String shieldJs = "";
     private boolean documentStartScript;
     private long lastToast;
+    private volatile long lastOk;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -211,6 +212,7 @@ public class StreamGateActivity extends Activity {
             case KeyEvent.KEYCODE_DPAD_RIGHT: return sendKey(down, "right");
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
+                if (down && e.getRepeatCount() == 0) lastOk = SystemClock.uptimeMillis();
                 return sendKey(down && e.getRepeatCount() == 0, "ok");
             case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
                 if (down && e.getRepeatCount() == 0) tapCenter();
@@ -242,8 +244,10 @@ public class StreamGateActivity extends Activity {
 
     /** Some players need one real tap before they start. */
     private void tapCenter() {
-        float x = root.getWidth() / 2f;
-        float y = root.getHeight() / 2f;
+        tapAt(root.getWidth() / 2f, root.getHeight() / 2f);
+    }
+
+    private void tapAt(float x, float y) {
         long t = SystemClock.uptimeMillis();
         for (int action : new int[] {MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP}) {
             MotionEvent ev = MotionEvent.obtain(t, SystemClock.uptimeMillis(), action, x, y, 0);
@@ -253,12 +257,27 @@ public class StreamGateActivity extends Activity {
         }
     }
 
-    /** Exposed to page scripts, so it offers nothing beyond a tap on the player. */
+    /**
+     * Exposed to page scripts, including ads, so a tap is only honoured right
+     * after the OK button was pressed on the remote.
+     */
     private class NativeBridge {
         @JavascriptInterface
         public void tap() {
-            handler.post(StreamGateActivity.this::tapCenter);
+            if (recentOk()) handler.post(StreamGateActivity.this::tapCenter);
         }
+
+        @JavascriptInterface
+        public void tapAt(int x, int y) {
+            if (!recentOk()) return;
+            handler.post(() -> tapAt(
+                    Math.max(0, Math.min(x, root.getWidth() - 1)),
+                    Math.max(0, Math.min(y, root.getHeight() - 1))));
+        }
+    }
+
+    private boolean recentOk() {
+        return SystemClock.uptimeMillis() - lastOk < 1500;
     }
 
     private void notifyBlocked(Uri u) {

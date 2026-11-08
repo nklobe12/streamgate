@@ -4,4 +4,4 @@ A Fire TV app that opens to a menu of two ad-free apps. Fulu is the former CineS
 
 Build: every push to `main` publishes `StreamGate.apk` to the `latest` GitHub release.
 
-StreamGate remote: the D-pad moves through tabs and game rows, OK opens a game, and Back goes back. During a game, press OK for streams and options.
+StreamGate remote: the D-pad moves a highlight around the ppv.tj site, OK selects, and Back goes back. OK on a video starts it; OK again fills the screen.
