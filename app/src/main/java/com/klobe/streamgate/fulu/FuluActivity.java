@@ -76,8 +76,8 @@ public class FuluActivity extends Activity {
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (SITE_STREAMGATE.equals(getIntent().getStringExtra(EXTRA_SITE))) {
-            HOME = "https://streamcorner.st/";
-            sites = new String[] {"streamcorner.st", "streamcorner.to"};
+            HOME = "https://sportontv.click/";
+            sites = new String[] {"sportontv.click"};
             prefsName = "streamgate";
         }
         AdBlocker.setSites(sites);
